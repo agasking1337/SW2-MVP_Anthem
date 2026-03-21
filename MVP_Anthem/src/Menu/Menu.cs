@@ -236,7 +236,7 @@ public sealed class MVPMenu
         {
             var mvpKey = mvp.Key;
             var mvpTemplate = mvp.Value;
-            var mvpDisplayName = localizer[mvpTemplate.DisplayName];
+            var mvpDisplayName = mvpTemplate.DisplayName;
 
             var mvpSubMenuOption = new SubmenuMenuOption(
                 mvpDisplayName,
@@ -254,7 +254,7 @@ public sealed class MVPMenu
     {
         var localizer = Core.Translation.GetPlayerLocalizer(player);
         var builder = Core.MenusAPI.CreateBuilder();
-        builder.Design.SetMenuTitle(GetMenuTitle(localizer[mvpTemplate.DisplayName]));
+        builder.Design.SetMenuTitle(GetMenuTitle(mvpTemplate.DisplayName));
         builder.SetPlayerFrozen(Config.Menu.FreezePlayer);
         if (Config.Menu.EnableSounds)
             builder.EnableSound();
@@ -418,7 +418,7 @@ public sealed class MVPMenu
 
         if (Helper.TryGetMvpTemplate(Config, settings.MVPName, out var template) &&
             Helper.PlayerHasAccessToMvp(Core, settings.Player, template))
-            return localizer[template.DisplayName];
+            return template.DisplayName;
 
         return localizer["mvp.none"];
     }

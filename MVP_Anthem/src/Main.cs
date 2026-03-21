@@ -278,7 +278,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             {
                 var localizer = Core.Translation.GetPlayerLocalizer(listener);
                 var prefix = localizer["prefix"];
-                var displayName = localizer[mvpTemplate.DisplayName];
+                var displayName = mvpTemplate.DisplayName;
                 var chatText = localizer[chatKey, mvpPlayerName, displayName];
                 listener.SendChat($"{prefix} {chatText}");
             }
@@ -292,7 +292,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
                 foreach (var listener in listeners)
                 {
                     var localizer = Core.Translation.GetPlayerLocalizer(listener);
-                    var displayName = localizer[mvpTemplate.DisplayName];
+                    var displayName = mvpTemplate.DisplayName;
                     var htmlText = localizer[htmlKey, mvpPlayerName, displayName];
                     Helper.SendHTML(listener, htmlText, htmlDurationSeconds);
                 }

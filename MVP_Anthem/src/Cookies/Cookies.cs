@@ -12,11 +12,17 @@ public sealed class MVPCookies
     private const string HadFirstConnectKey = "mvp_anthem.had_first_connect";
     private const string HasRandomMvpKey = "mvp_anthem.has_random_mvp";
 
-    private IPlayerCookiesAPIv1 Cookies { get; set; } = null!;
+    private readonly IPlayerCookiesAPIv1 Cookies;
+    private readonly Dictionary<int, PlayerSettings> _cache = [];
 
-    public MVPCookies(IPlayerCookiesAPIv1 cookies)
+    public void RemovePlayer(int playerId) => _cache.Remove(playerId);
+
+    private readonly float _defaultVolume;
+
+    public MVPCookies(IPlayerCookiesAPIv1 cookies, float defaultVolume = 0.2f)
     {
         Cookies = cookies;
+        _defaultVolume = Helper.ClampVolume(defaultVolume);
     }
 
     public void SavePlayerSettings(PlayerSettings settings)
@@ -35,14 +41,21 @@ public sealed class MVPCookies
     public PlayerSettings? GetPlayerSettings(IPlayer player)
     {
         ArgumentNullException.ThrowIfNull(player);
+        if (!player.IsValid || player.IsFakeClient) return null;
+        if (_cache.TryGetValue(player.PlayerID, out var cached) && cached.SessionId == player.SessionId)
+        {
+            cached.Player = player;
+            return cached;
+        }
         Cookies.Load(player);
 
-        return new PlayerSettings
+        return _cache[player.PlayerID] = new PlayerSettings
         {
             Player = player,
+            SessionId = player.SessionId,
             MVPName = Cookies.GetOrDefault(player, MVPNameKey, string.Empty) ?? string.Empty,
             SoundPath = Cookies.GetOrDefault(player, SoundPathKey, string.Empty) ?? string.Empty,
-            Volume = Cookies.GetOrDefault(player, VolumeKey, 0f),
+            Volume = Cookies.GetOrDefault(player, VolumeKey, _defaultVolume),
             HasRandomMvp = Cookies.GetOrDefault(player, HasRandomMvpKey, false),
             HadFirstConnect = Cookies.GetOrDefault(player, HadFirstConnectKey, false)
         };
@@ -51,6 +64,7 @@ public sealed class MVPCookies
     public sealed class PlayerSettings
     {
         public IPlayer Player { get; set; } = null!;
+        public ulong SessionId { get; init; }
         public string MVPName { get; set; } = string.Empty;
         public string SoundPath { get; set; } = string.Empty;
         public float Volume { get; set; }

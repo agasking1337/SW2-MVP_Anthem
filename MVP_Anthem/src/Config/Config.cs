@@ -38,6 +38,8 @@ public sealed class MVPConfig
 public sealed class MVP_Settings
 {
     public List<string> SoundEventFiles { get; set; } = new List<string>();
+    public List<string> MenuTypes { get; set; } = ["core", "t3"];
+    public string MenuType { get; set; } = "t3";
     public List<string> MVPCommands { get; set; } = new List<string> { "mvp" };
     public bool ShakePlayerScreen { get; set; } = true;
     public bool RemovePlayerInGameMvp { get; set; } = true;

@@ -3,6 +3,7 @@ using Cookies.Contract;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Commands;
 using SwiftlyS2.Shared.GameEventDefinitions;
@@ -11,13 +12,14 @@ using SwiftlyS2.Shared.Misc;
 using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
+using T3Menu.Contract;
 
 namespace MVP_Anthem;
 
 [PluginMetadata(
     Id = "MVP_Anthem",
     Name = "MVP Anthem",
-    Version = "1.0.0",
+    Version = "1.1.0",
     Description = "MVP Plugin with fully customizable config"
 )]
 public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
@@ -32,8 +34,13 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     private IAudioApi? AudioApi { get; set; }
     private MVPConfig Config { get; set; } = new MVPConfig();
     private MVPCookies? mvpCookies { get; set; }
-    private MVPMenu? mvpMenu { get; set; }
-    private List<Guid> mvpMenuCommandGuids { get; } = [];
+    private IMvpMenu? Menu { get; set; }
+    private IT3Menu? _t3Menu;
+    private bool _loaded;
+    private IPlayerCookiesAPIv1? _runtimeCookies;
+    private IAudioApi? _runtimeAudio;
+    private IT3Menu? _runtimeMenu;
+    private List<Guid> _commandIds { get; } = [];
 
     public override void UseSharedInterface(IInterfaceManager interfaceManager)
     {
@@ -42,12 +49,13 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             [PlayerCookiesInterfaceKey, PlayerCookiesInterfaceKeyLegacy]
         );
         AudioApi = ResolveSharedInterface<IAudioApi>(interfaceManager, [AudioInterfaceKey]);
+        _t3Menu = ResolveSharedInterface<IT3Menu>(interfaceManager, [IT3Menu.Key]);
+        InitializeRuntimeIfReady();
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
         UseSharedInterface(interfaceManager);
-        InitializeRuntimeIfReady();
     }
 
     public override void Load(bool hotReload)
@@ -66,27 +74,44 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
 
         _provider = services.BuildServiceProvider();
         Config = _provider.GetRequiredService<IOptions<MVPConfig>>().Value;
+        _loaded = true;
+        Core.Event.OnClientDisconnected += OnClientDisconnected;
+        Core.Event.OnMapUnload += OnMapUnload;
+        Core.Event.OnPrecacheResource += OnPrecacheResource;
         InitializeRuntimeIfReady();
     }
 
     private void InitializeRuntimeIfReady()
     {
+        if (!_loaded) return;
+        if (Menu != null && ReferenceEquals(Cookies, _runtimeCookies) && ReferenceEquals(AudioApi, _runtimeAudio)
+            && ReferenceEquals(_t3Menu, _runtimeMenu)) return;
+        _runtimeCookies = Cookies;
+        _runtimeAudio = AudioApi;
+        _runtimeMenu = _t3Menu;
+        Menu?.Dispose();
+        Menu = null;
+        UnregisterConfiguredCommands();
         if (Cookies is null || AudioApi is null)
         {
             mvpCookies = null;
-            mvpMenu = null;
-            UnregisterConfiguredCommands();
             return;
         }
 
-        mvpCookies = new MVPCookies(Cookies);
-        mvpMenu = new MVPMenu(Core, Config, mvpCookies, AudioApi);
+        mvpCookies = new MVPCookies(Cookies, Config.Settings.DefaultVolume);
+        Menu = string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu != null
+            ? new T3MvpMenu(Core, Config, mvpCookies, AudioApi, _t3Menu)
+            : new CoreMvpMenu(Core, Config, mvpCookies, AudioApi);
+        if (string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu == null)
+            Core.Logger.LogWarning("T3Menu is unavailable; MVP Anthem is using the Core menu.");
         RegisterConfiguredCommands();
+        foreach (var player in Core.PlayerManager.GetAllValidPlayers())
+            InitializePlayer(player);
     }
 
     private void RegisterConfiguredCommands()
     {
-        foreach (var cmd in Config.Settings.MVPCommands)
+        foreach (var cmd in Config.Settings.MVPCommands.Select(command => command?.Trim() ?? "").Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(cmd))
                 continue;
@@ -94,18 +119,18 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             if (!Core.Command.IsCommandRegistered(cmd))
             {
                 var guid = Core.Command.RegisterCommand(cmd, OnMvpCommand);
-                mvpMenuCommandGuids.Add(guid);
+                _commandIds.Add(guid);
             }
         }
     }
 
     private void UnregisterConfiguredCommands()
     {
-        foreach (var commandGuid in mvpMenuCommandGuids)
+        foreach (var commandGuid in _commandIds)
         {
             Core.Command.UnregisterCommand(commandGuid);
         }
-        mvpMenuCommandGuids.Clear();
+        _commandIds.Clear();
     }
 
     private T? ResolveSharedInterface<T>(IInterfaceManager interfaceManager, IEnumerable<string> keys) where T : class
@@ -131,15 +156,16 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     [GameEventHandler(HookMode.Post)]
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull e)
     {
-        if (mvpCookies is null)
-            return HookResult.Continue;
+        if (e.UserIdPlayer is { IsValid: true } player) InitializePlayer(player);
+        return HookResult.Continue;
+    }
 
-        if (e.UserIdPlayer is not IPlayer player)
-            return HookResult.Continue;
-
+    private void InitializePlayer(IPlayer player)
+    {
+        if (mvpCookies == null || !player.IsValid || player.IsFakeClient) return;
         var settings = mvpCookies.GetPlayerSettings(player);
         if (settings == null)
-            return HookResult.Continue;
+            return;
 
         settings.Player = player;
         var shouldSave = false;
@@ -185,7 +211,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             mvpCookies.SavePlayerSettings(settings);
         }
 
-        return HookResult.Continue;
+        return;
     }
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnRoundMvp(EventRoundMvp e)
@@ -227,7 +253,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
                 return HookResult.Continue;
 
             mvpName = settings.MVPName;
-            soundPath = settings.SoundPath;
+            soundPath = Helper.GetSoundPath(Config, mvpName);
         }
 
         if (!Helper.TryGetMvpTemplate(Config, mvpName, out mvpTemplate))
@@ -250,7 +276,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             mvpCookies.SavePlayerSettings(settings);
         }
 
-        var listeners = Core.PlayerManager.GetAllValidPlayers().ToArray();
+        var listeners = Core.PlayerManager.GetAllValidPlayers().Where(player => !player.IsFakeClient).ToArray();
         if (listeners.Length == 0)
             return HookResult.Continue;
 
@@ -278,7 +304,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             {
                 var localizer = Core.Translation.GetPlayerLocalizer(listener);
                 var prefix = localizer["prefix"];
-                var displayName = mvpTemplate.DisplayName;
+                var displayName = localizer[mvpTemplate.DisplayName];
                 var chatText = localizer[chatKey, mvpPlayerName, displayName];
                 listener.SendChat($"{prefix} {chatText}");
             }
@@ -292,8 +318,8 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
                 foreach (var listener in listeners)
                 {
                     var localizer = Core.Translation.GetPlayerLocalizer(listener);
-                    var displayName = mvpTemplate.DisplayName;
-                    var htmlText = localizer[htmlKey, mvpPlayerName, displayName];
+                    var displayName = localizer[mvpTemplate.DisplayName];
+                    var htmlText = localizer[htmlKey, System.Net.WebUtility.HtmlEncode(mvpPlayerName), System.Net.WebUtility.HtmlEncode(displayName)];
                     Helper.SendHTML(listener, htmlText, htmlDurationSeconds);
                 }
             }
@@ -304,7 +330,36 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
 
     public override void Unload()
     {
+        _loaded = false;
         UnregisterConfiguredCommands();
+        Core.Event.OnClientDisconnected -= OnClientDisconnected;
+        Core.Event.OnMapUnload -= OnMapUnload;
+        Core.Event.OnPrecacheResource -= OnPrecacheResource;
+        Menu?.Dispose();
+        Menu = null;
+        Helper.Reset();
+        mvpCookies = null;
+        _provider?.Dispose();
+        _provider = null;
+    }
+
+    private void OnClientDisconnected(IOnClientDisconnectedEvent e)
+    {
+        Menu?.RemovePlayer(e.PlayerId);
+        mvpCookies?.RemovePlayer(e.PlayerId);
+        Helper.RemoveHtmlMessage(e.PlayerId);
+    }
+
+    private void OnMapUnload(IOnMapUnloadEvent e)
+    {
+        foreach (var player in Core.PlayerManager.GetAllValidPlayers()) Menu?.RemovePlayer(player.PlayerID);
+        Helper.Reset();
+    }
+
+    private void OnPrecacheResource(IOnPrecacheResourceEvent e)
+    {
+        foreach (var resource in Config.Settings.SoundEventFiles.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct())
+            e.AddItem(resource);
     }
 
     private void OnMvpCommand(ICommandContext context)
@@ -315,13 +370,14 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             return;
         }
 
-        if (mvpMenu is null)
+        InitializePlayer(player);
+        if (Menu is null)
         {
             context.Reply("MVP menu is unavailable: required shared interfaces are not ready.");
             return;
         }
 
-        mvpMenu.OpenMainMenu(player);
+        Menu.OpenMainMenu(player);
     }
     [EventListener<EventDelegates.OnTick>]
     public void OnTick()

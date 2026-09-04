@@ -6,10 +6,18 @@ using SwiftlyS2.Shared.Sounds;
 
 namespace MVP_Anthem;
 
-public sealed class Helper
+public static class Helper
 {
     public static ISwiftlyCore Core => Main.Core;
-    public static readonly Dictionary<int, HtmlSendEntry> SendMessages = new();
+    private static readonly Dictionary<int, HtmlSendEntry> SendMessages = [];
+    private static readonly List<int> ExpiredMessages = [];
+    private static int _generation;
+
+    public static void Reset()
+    {
+        _generation++;
+        ClearHtmlMessages();
+    }
     public static string GetPlayerName(IPlayer player)
     {
         return player.Controller.PlayerName ?? "Console";
@@ -17,7 +25,7 @@ public sealed class Helper
 
     public static float ClampVolume(float volume)
     {
-        return Math.Clamp(volume, 0f, 1f);
+        return float.IsNaN(volume) ? 0f : Math.Clamp(volume, 0f, 1f);
     }
 
     public static (string MvpName, string SoundPath)? GetRandomMvp(MVPConfig config)
@@ -32,12 +40,12 @@ public sealed class Helper
 
     public static (string MvpName, string SoundPath)? GetRandomMvpForPlayer(ISwiftlyCore core, MVPConfig config, IPlayer player)
     {
-        var allMvps = GetAvailableMvpsForPlayer(core, config, player).ToArray();
-        if (allMvps.Length == 0)
-            return null;
-
-        var selected = allMvps[Random.Shared.Next(allMvps.Length)];
-        return (selected.Key, selected.Value.Sound ?? string.Empty);
+        (string MvpName, string SoundPath)? selected = null;
+        var count = 0;
+        foreach (var entry in GetAvailableMvpsForPlayer(core, config, player))
+            if (Random.Shared.Next(++count) == 0)
+                selected = (entry.Key, entry.Value.Sound ?? string.Empty);
+        return selected;
     }
 
     public static IEnumerable<KeyValuePair<string, MVP_Template>> GetAvailableMvpsForPlayer(ISwiftlyCore core, MVPConfig config, IPlayer player)
@@ -114,13 +122,14 @@ public sealed class Helper
     {
         ArgumentNullException.ThrowIfNull(audioApi);
         ArgumentNullException.ThrowIfNull(player);
-        if (!player.IsValid || string.IsNullOrWhiteSpace(sound))
+        if (!player.IsValid || player.IsFakeClient || ClampVolume(volume) <= 0f || string.IsNullOrWhiteSpace(sound))
             return;
 
         var clampedVolume = ClampVolume(volume);
+        var generation = _generation;
         Core.Scheduler.NextWorldUpdate(() =>
         {
-            if (!player.IsValid)
+            if (generation != _generation || !player.IsValid)
                 return;
 
             PlaySoundSingleInternal(audioApi, player, sound, clampedVolume);
@@ -134,11 +143,15 @@ public sealed class Helper
         if (string.IsNullOrWhiteSpace(sound))
             return;
 
-        var listenerArray = listeners.ToArray();
+        var listenerArray = listeners as (IPlayer Player, float Volume)[] ?? listeners.ToArray();
         if (listenerArray.Length == 0)
             return;
 
-        Core.Scheduler.NextWorldUpdate(() => PlaySoundManyInternal(audioApi, listenerArray, sound));
+        var generation = _generation;
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (generation == _generation) PlaySoundManyInternal(audioApi, listenerArray, sound);
+        });
     }
 
     private static void PlaySoundSingleInternal(IAudioApi audioApi, IPlayer player, string sound, float clampedVolume)
@@ -168,7 +181,7 @@ public sealed class Helper
 
     private static void PlaySoundManyInternal(IAudioApi audioApi, (IPlayer Player, float Volume)[] listeners, string sound)
     {
-        var activeListeners = listeners.Where(static entry => entry.Player.IsValid).ToArray();
+        var activeListeners = listeners.Where(static entry => entry.Player.IsValid && !entry.Player.IsFakeClient && ClampVolume(entry.Volume) > 0f).ToArray();
         if (activeListeners.Length == 0)
             return;
 
@@ -216,64 +229,35 @@ public sealed class Helper
     }
     public static void SendHTML(IPlayer player, string message, int duration)
     {
-        if (player == null || !player.IsValid || player.IsFakeClient || string.IsNullOrWhiteSpace(message))
-            return;
-
-        var playerId = player.PlayerID;
-
-        if (SendMessages.TryGetValue(playerId, out var existing))
+        if (!player.IsValid || player.IsFakeClient) return;
+        if (duration <= 0 || string.IsNullOrWhiteSpace(message))
         {
-            existing.Timer?.Cancel();
-            existing.Timer = null;
-        }
-
-        if (duration <= 0)
-        {
-            SendMessages.Remove(playerId);
+            RemoveHtmlMessage(player.PlayerID);
             return;
         }
-
-        var entry = existing ?? new HtmlSendEntry { PlayerID = playerId };
-        entry.Message = message;
-        entry.Timer = Core.Scheduler.DelayBySeconds(duration, () =>
-        {
-            if (SendMessages.TryGetValue(playerId, out var current))
-            {
-                current.Timer = null;
-                SendMessages.Remove(playerId);
-            }
-        });
-
-        SendMessages[playerId] = entry;
+        SendMessages[player.PlayerID] = new HtmlSendEntry(player, player.SessionId, message,
+            Environment.TickCount64 + (long)duration * 1000);
     }
+
+    public static void RemoveHtmlMessage(int playerId) => SendMessages.Remove(playerId);
+    public static void ClearHtmlMessages() => SendMessages.Clear();
 
     public static void RenderHtmlMessages()
     {
-        if (SendMessages.Count == 0)
-            return;
-
-        foreach (var entry in SendMessages.Values.ToArray())
+        if (SendMessages.Count == 0) return;
+        var now = Environment.TickCount64;
+        ExpiredMessages.Clear();
+        foreach (var (id, entry) in SendMessages)
         {
-            var player = Core.PlayerManager.GetPlayer(entry.PlayerID);
-            if (player == null || !player.IsValid || player.IsFakeClient)
+            if (!entry.Player.IsValid || entry.Player.SessionId != entry.SessionId || now >= entry.ExpiresAt)
             {
-                entry.Timer?.Cancel();
-                entry.Timer = null;
-                SendMessages.Remove(entry.PlayerID);
+                ExpiredMessages.Add(id);
                 continue;
             }
-
-            if (string.IsNullOrWhiteSpace(entry.Message))
-                continue;
-
-            player.SendCenterHTML(entry.Message, 1);
+            entry.Player.SendCenterHTML(entry.Message, 1);
         }
+        foreach (var id in ExpiredMessages) SendMessages.Remove(id);
     }
-}
-public sealed class HtmlSendEntry
-{
-    public int PlayerID { get; init; }
-    public string Message { get; set; } = string.Empty;
-    public CancellationTokenSource? Timer { get; set; }
-}
 
+    private sealed record HtmlSendEntry(IPlayer Player, ulong SessionId, string Message, long ExpiresAt);
+}

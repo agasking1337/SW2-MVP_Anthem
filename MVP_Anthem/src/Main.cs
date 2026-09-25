@@ -1,5 +1,4 @@
-﻿using AudioApi;
-using Cookies.Contract;
+﻿using Cookies.Contract;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -27,14 +26,12 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
 {
     private const string PlayerCookiesInterfaceKey = "Cookies.Player.v1";
     private const string PlayerCookiesInterfaceKeyLegacy = "Cookies.Player.V1";
-    private const string AudioInterfaceKey = "audio";
     private const string VolumeInterfaceKey = "Volume.Player.v1";
     private const string VolumeFeatureKey = "MVP_Anthem";
 
     private ServiceProvider? _provider;
     public static new ISwiftlyCore Core { get; set; } = null!;
     private IPlayerCookiesAPIv1? Cookies { get; set; }
-    private IAudioApi? AudioApi { get; set; }
     private IPlayerVolumeAPI? VolumeApi { get; set; }
     private MVPConfig Config { get; set; } = new MVPConfig();
     private MVPCookies? mvpCookies { get; set; }
@@ -42,7 +39,6 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     private IT3Menu? _t3Menu;
     private bool _loaded;
     private IPlayerCookiesAPIv1? _runtimeCookies;
-    private IAudioApi? _runtimeAudio;
     private IPlayerVolumeAPI? _runtimeVolume;
     private IT3Menu? _runtimeMenu;
     private List<Guid> _commandIds { get; } = [];
@@ -53,7 +49,6 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             interfaceManager,
             [PlayerCookiesInterfaceKey, PlayerCookiesInterfaceKeyLegacy]
         );
-        AudioApi = ResolveSharedInterface<IAudioApi>(interfaceManager, [AudioInterfaceKey]);
         var volumeApi = ResolveSharedInterface<IPlayerVolumeAPI>(interfaceManager, [VolumeInterfaceKey]);
         if (!ReferenceEquals(VolumeApi, volumeApi))
         {
@@ -96,16 +91,15 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     private void InitializeRuntimeIfReady()
     {
         if (!_loaded) return;
-        if (Menu != null && ReferenceEquals(Cookies, _runtimeCookies) && ReferenceEquals(AudioApi, _runtimeAudio)
+        if (Menu != null && ReferenceEquals(Cookies, _runtimeCookies)
             && ReferenceEquals(VolumeApi, _runtimeVolume) && ReferenceEquals(_t3Menu, _runtimeMenu)) return;
         _runtimeCookies = Cookies;
-        _runtimeAudio = AudioApi;
         _runtimeVolume = VolumeApi;
         _runtimeMenu = _t3Menu;
         Menu?.Dispose();
         Menu = null;
         UnregisterConfiguredCommands();
-        if (Cookies is null || AudioApi is null)
+        if (Cookies is null)
         {
             mvpCookies = null;
             return;
@@ -113,8 +107,8 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
 
         mvpCookies = new MVPCookies(Cookies);
         Menu = string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu != null
-            ? new T3MvpMenu(Core, Config, mvpCookies, AudioApi, _t3Menu, GetPlayerVolume)
-            : new CoreMvpMenu(Core, Config, mvpCookies, AudioApi, GetPlayerVolume);
+            ? new T3MvpMenu(Core, Config, mvpCookies, _t3Menu, GetPlayerVolume)
+            : new CoreMvpMenu(Core, Config, mvpCookies, GetPlayerVolume);
         if (string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu == null)
             Core.Logger.LogWarning("T3Menu is unavailable; MVP Anthem is using the Core menu.");
         RegisterConfiguredCommands();
@@ -262,7 +256,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnRoundMvp(EventRoundMvp e)
     {
-        if (mvpCookies is null || AudioApi is null)
+        if (mvpCookies is null)
             return HookResult.Continue;
 
         if (e.UserIdPlayer is not IPlayer mvpPlayer)
@@ -332,7 +326,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
                 .Select(listener => (Player: listener, Volume: GetPlayerVolume(listener)))
                 .ToArray();
 
-            Helper.PlaySound(AudioApi, listenerVolumes, soundPath);
+            Helper.PlaySound(listenerVolumes, soundPath);
         }
 
         var mvpPlayerName = Helper.GetPlayerName(mvpPlayer);

@@ -13,7 +13,7 @@ public sealed class MVPConfig
                     "mvp_1", new MVP_Template
                     {
                         DisplayName = "mvp_1.name",
-                        Sound = "flawless.mp3",
+                        Sound = "Weapon_AK47.Single",
                         EnablePreview = true,
                         ShowHtml = true,
                         ShowChat = true,
@@ -24,7 +24,7 @@ public sealed class MVPConfig
                     "mvp_2", new MVP_Template
                     {
                         DisplayName = "mvp_2.name",
-                        Sound = "florinsalam.mp3",
+                        Sound = "Weapon_AWP.Single",
                         EnablePreview = true,
                         ShowHtml = true,
                         ShowChat = true,

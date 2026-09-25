@@ -1,4 +1,3 @@
-using AudioApi;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Players;
 
@@ -14,7 +13,7 @@ internal sealed record MvpMenuPage(string Title, List<MvpMenuEntry> Entries);
 internal sealed record MvpMenuEntry(string Text, Action<IPlayer>? Action = null,
     Func<IPlayer, MvpMenuPage>? Submenu = null, bool Disabled = false, bool KeepOpen = false);
 
-public abstract class MvpMenuBase(ISwiftlyCore core, MVPConfig config, MVPCookies cookies, IAudioApi audio,
+public abstract class MvpMenuBase(ISwiftlyCore core, MVPConfig config, MVPCookies cookies,
     Func<IPlayer, float> getVolume) : IMvpMenu
 {
     protected ISwiftlyCore Core { get; } = core;
@@ -95,7 +94,7 @@ public abstract class MvpMenuBase(ISwiftlyCore core, MVPConfig config, MVPCookie
             entries.Add(new(Text(player, "mvp.preview<option>"), p =>
             {
                 if (TryAccessible(p, key, out var current) && current.EnablePreview)
-                    Helper.PlaySound(audio, p, current.Sound, getVolume(p));
+                    Helper.PlaySound(p, current.Sound, getVolume(p));
             }, KeepOpen: true));
         return new(Text(player, template.DisplayName), entries);
     }

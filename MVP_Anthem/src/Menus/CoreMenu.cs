@@ -1,4 +1,3 @@
-using AudioApi;
 using SwiftlyS2.Core.Menus.OptionsBase;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Menus;
@@ -6,9 +5,9 @@ using SwiftlyS2.Shared.Players;
 
 namespace MVP_Anthem;
 
-public sealed class CoreMvpMenu(ISwiftlyCore core, MVPConfig config, MVPCookies cookies, IAudioApi audio,
+public sealed class CoreMvpMenu(ISwiftlyCore core, MVPConfig config, MVPCookies cookies,
     Func<IPlayer, float> getVolume)
-    : MvpMenuBase(core, config, cookies, audio, getVolume)
+    : MvpMenuBase(core, config, cookies, getVolume)
 {
     private readonly Dictionary<int, List<IMenuAPI>> _menus = [];
 

@@ -1,5 +1,4 @@
 using System.Reflection;
-using AudioApi;
 using Cookies.Contract;
 using MVP_Anthem;
 using Helper = MVP_Anthem.Helper;
@@ -52,7 +51,6 @@ var core = Stub.Create<ISwiftlyCore>((m, _) => m.Name switch
     "get_Scheduler" => scheduler,
     _ => Stub.Default(m.ReturnType)
 });
-var audio = Stub.Create<IAudioApi>((m, _) => Stub.Default(m.ReturnType));
 Menu? opened = null;
 var closed = new HashSet<Menu>();
 var service = Stub.Create<IT3Menu>((m, args) =>
@@ -64,9 +62,9 @@ var service = Stub.Create<IT3Menu>((m, args) =>
 var config = new MVPConfig
 {
     MVPs = new() { ["category"] = new() { ["restricted"] = new()
-    { DisplayName = "anthem.name", Sound = "test.mp3", Permissions = ["vip"] } } }
+    { DisplayName = "anthem.name", Sound = "Weapon_AK47.Single", Permissions = ["vip"] } } }
 };
-using var menu = new T3MvpMenu(core, config, cookies, audio, service, _ => .4f);
+using var menu = new T3MvpMenu(core, config, cookies, service, _ => .4f);
 menu.OpenMainMenu(player);
 var main = opened!;
 Check(main.Items.OfType<SubmenuItem>().Count() == 1, "T3 main menu contains only the MVP selection submenu");

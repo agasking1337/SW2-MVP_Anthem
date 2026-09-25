@@ -9,7 +9,8 @@ Custom round-MVP anthems for CS2 servers running SwiftlyS2. Players can browse c
 | Dependency | Required for |
 | --- | --- |
 | SwiftlyS2 1.4.6 or newer | Running MVP Anthem |
-| [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) | Saving player selections and volume |
+| [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) | Saving player selections |
+| [Volume.API](https://github.com/a2Labs-cc/Volume.API) | Per-player anthem volume |
 | [Audio](https://github.com/SwiftlyS2-Plugins/Audio) | Audio service and MP3 playback |
 | [T3Menu by T3Marius](https://github.com/T3Marius/T3Menu) | The default `t3` menu |
 
@@ -47,19 +48,19 @@ Set `Main.Settings.MenuType` in `config.jsonc`:
 | `"t3"` (default) | [T3Menu](https://github.com/T3Marius/T3Menu) | Navigation, style, and sounds come from T3Menu |
 | `"core"` | SwiftlyS2 built-in menu | Uses the freeze, sound, and gradient settings under `Main.Menu` |
 
-Both menus use the same selection, preview, volume, and permission logic. Permissions are checked again when selecting or previewing an anthem.
+Both menus use the same selection, preview, and permission logic. Permissions are checked again when selecting or previewing an anthem. Listening volume is managed by Volume.API through its `!volume` and `!vol` commands.
 
 ## Configuration
 
 Configuration lives under `Main` in `config.jsonc`.
 
-### General settings — `Main.Settings`
+### General settings ï¿½ `Main.Settings`
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `MenuType` | `"t3"` | Select `t3` or `core` |
 | `MVPCommands` | `["mvp"]` | Menu command aliases |
-| `DefaultVolume` | `0.2` | Initial listening volume, from 0 to 1 |
+| `DefaultVolume` | `0.2` | Fallback listening volume when Volume.API is unavailable |
 | `GiveRandomMVPOnFirstConnect` | `true` | Assign an accessible anthem on first join |
 | `MVPMaxDuration` | `10` | Duration of the center-HTML announcement, in seconds |
 | `RemovePlayerInGameMvp` | `true` | Reset the MVP player's native MVP and music-kit MVP counters |
@@ -67,16 +68,15 @@ Configuration lives under `Main` in `config.jsonc`.
 
 `GiveRandomMVPOnFirstJoin` remains an alias for `GiveRandomMVPOnFirstConnect`; configure one of them. `MenuTypes` is retained for compatibility, but `MenuType` controls the menu. `ShakePlayerScreen` is currently unused.
 
-### Menu settings — `Main.Menu`
+### Menu settings ï¿½ `Main.Menu`
 
 | Setting | Default | Applies to |
 | --- | --- | --- |
-| `VolumeOptions` | `[0,10,20,40,60,80,100]` | Both menus; percentages from 0 to 100 |
 | `FreezePlayer` | `true` | Core menu |
 | `EnableSounds` | `true` | Core menu |
 | `GradientTitleColor` | `true` | Core menu |
 
-### Anthems — `Main.MVPs`
+### Anthems ï¿½ `Main.MVPs`
 
 Each category contains anthem IDs and their settings. Keep anthem IDs unique across categories; saved selections use these IDs.
 

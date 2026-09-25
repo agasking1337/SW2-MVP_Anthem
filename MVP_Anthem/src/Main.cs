@@ -13,13 +13,14 @@ using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
 using T3Menu.Contract;
+using Volume.Contract;
 
 namespace MVP_Anthem;
 
 [PluginMetadata(
     Id = "MVP_Anthem",
     Name = "MVP Anthem",
-    Version = "1.1.0",
+    Version = "1.2.0",
     Description = "MVP Plugin with fully customizable config"
 )]
 public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
@@ -27,11 +28,14 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     private const string PlayerCookiesInterfaceKey = "Cookies.Player.v1";
     private const string PlayerCookiesInterfaceKeyLegacy = "Cookies.Player.V1";
     private const string AudioInterfaceKey = "audio";
+    private const string VolumeInterfaceKey = "Volume.Player.v1";
+    private const string VolumeFeatureKey = "MVP_Anthem";
 
     private ServiceProvider? _provider;
     public static new ISwiftlyCore Core { get; set; } = null!;
     private IPlayerCookiesAPIv1? Cookies { get; set; }
     private IAudioApi? AudioApi { get; set; }
+    private IPlayerVolumeAPI? VolumeApi { get; set; }
     private MVPConfig Config { get; set; } = new MVPConfig();
     private MVPCookies? mvpCookies { get; set; }
     private IMvpMenu? Menu { get; set; }
@@ -39,6 +43,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     private bool _loaded;
     private IPlayerCookiesAPIv1? _runtimeCookies;
     private IAudioApi? _runtimeAudio;
+    private IPlayerVolumeAPI? _runtimeVolume;
     private IT3Menu? _runtimeMenu;
     private List<Guid> _commandIds { get; } = [];
 
@@ -49,6 +54,13 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             [PlayerCookiesInterfaceKey, PlayerCookiesInterfaceKeyLegacy]
         );
         AudioApi = ResolveSharedInterface<IAudioApi>(interfaceManager, [AudioInterfaceKey]);
+        var volumeApi = ResolveSharedInterface<IPlayerVolumeAPI>(interfaceManager, [VolumeInterfaceKey]);
+        if (!ReferenceEquals(VolumeApi, volumeApi))
+        {
+            UnregisterVolumeFeature();
+            VolumeApi = volumeApi;
+            RegisterVolumeFeature();
+        }
         _t3Menu = ResolveSharedInterface<IT3Menu>(interfaceManager, [IT3Menu.Key]);
         InitializeRuntimeIfReady();
     }
@@ -85,9 +97,10 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     {
         if (!_loaded) return;
         if (Menu != null && ReferenceEquals(Cookies, _runtimeCookies) && ReferenceEquals(AudioApi, _runtimeAudio)
-            && ReferenceEquals(_t3Menu, _runtimeMenu)) return;
+            && ReferenceEquals(VolumeApi, _runtimeVolume) && ReferenceEquals(_t3Menu, _runtimeMenu)) return;
         _runtimeCookies = Cookies;
         _runtimeAudio = AudioApi;
+        _runtimeVolume = VolumeApi;
         _runtimeMenu = _t3Menu;
         Menu?.Dispose();
         Menu = null;
@@ -98,10 +111,10 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             return;
         }
 
-        mvpCookies = new MVPCookies(Cookies, Config.Settings.DefaultVolume);
+        mvpCookies = new MVPCookies(Cookies);
         Menu = string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu != null
-            ? new T3MvpMenu(Core, Config, mvpCookies, AudioApi, _t3Menu)
-            : new CoreMvpMenu(Core, Config, mvpCookies, AudioApi);
+            ? new T3MvpMenu(Core, Config, mvpCookies, AudioApi, _t3Menu, GetPlayerVolume)
+            : new CoreMvpMenu(Core, Config, mvpCookies, AudioApi, GetPlayerVolume);
         if (string.Equals(Config.Settings.MenuType, "t3", StringComparison.OrdinalIgnoreCase) && _t3Menu == null)
             Core.Logger.LogWarning("T3Menu is unavailable; MVP Anthem is using the Core menu.");
         RegisterConfiguredCommands();
@@ -131,6 +144,47 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
             Core.Command.UnregisterCommand(commandGuid);
         }
         _commandIds.Clear();
+    }
+
+    private void RegisterVolumeFeature()
+    {
+        if (VolumeApi == null) return;
+        try
+        {
+            VolumeApi.RegisterFeature(VolumeFeatureKey, "MVP Anthem");
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogError(ex, "Could not register MVP Anthem with Volume.API.");
+            VolumeApi = null;
+        }
+    }
+
+    private void UnregisterVolumeFeature()
+    {
+        if (VolumeApi == null) return;
+        try
+        {
+            VolumeApi.UnregisterFeature(VolumeFeatureKey);
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogError(ex, "Could not unregister MVP Anthem from Volume.API.");
+        }
+    }
+
+    private float GetPlayerVolume(IPlayer player)
+    {
+        if (VolumeApi == null) return Helper.ClampVolume(Config.Settings.DefaultVolume);
+        try
+        {
+            return Helper.ClampVolume(VolumeApi.GetEffectiveVolume((long)player.SteamID, VolumeFeatureKey));
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogError(ex, "Could not read MVP Anthem volume for {SteamId}.", player.SteamID);
+            return Helper.ClampVolume(Config.Settings.DefaultVolume);
+        }
     }
 
     private T? ResolveSharedInterface<T>(IInterfaceManager interfaceManager, IEnumerable<string> keys) where T : class
@@ -173,7 +227,6 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
         if (!settings.HadFirstConnect)
         {
             settings.HadFirstConnect = true;
-            settings.Volume = Helper.ClampVolume(Config.Settings.DefaultVolume);
             shouldSave = true;
 
             if (Config.Settings.GiveRandomMVPOnFirstJoin)
@@ -188,13 +241,6 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
         }
         else
         {
-            var clampedVolume = Helper.ClampVolume(settings.Volume);
-            if (!settings.Volume.Equals(clampedVolume))
-            {
-                settings.Volume = clampedVolume;
-                shouldSave = true;
-            }
-
             if (string.IsNullOrWhiteSpace(settings.SoundPath) && !string.IsNullOrWhiteSpace(settings.MVPName))
             {
                 var mappedSoundPath = Helper.GetSoundPath(Config, settings.MVPName);
@@ -283,12 +329,7 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
         if (!string.IsNullOrWhiteSpace(soundPath))
         {
             var listenerVolumes = listeners
-                .Select(listener =>
-                {
-                    var listenerSettings = mvpCookies.GetPlayerSettings(listener);
-                    var listenerVolume = listenerSettings?.Volume ?? Config.Settings.DefaultVolume;
-                    return (Player: listener, Volume: listenerVolume);
-                })
+                .Select(listener => (Player: listener, Volume: GetPlayerVolume(listener)))
                 .ToArray();
 
             Helper.PlaySound(AudioApi, listenerVolumes, soundPath);
@@ -332,6 +373,8 @@ public sealed class Main(ISwiftlyCore core) : BasePlugin(core)
     {
         _loaded = false;
         UnregisterConfiguredCommands();
+        UnregisterVolumeFeature();
+        VolumeApi = null;
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
         Core.Event.OnMapUnload -= OnMapUnload;
         Core.Event.OnPrecacheResource -= OnPrecacheResource;

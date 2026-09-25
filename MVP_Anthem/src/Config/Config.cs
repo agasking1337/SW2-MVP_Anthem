@@ -57,7 +57,6 @@ public sealed class Menu_Settings
     public bool FreezePlayer { get; set; } = true;
     public bool EnableSounds { get; set; } = true;
     public bool GradientTitleColor { get; set; } = true;
-    public List<int> VolumeOptions { get; set; } = [0, 10, 20, 40, 60, 80, 100];
 }
 public sealed class MVP_Template
 {

@@ -40,6 +40,10 @@
 		<Reference Include="T3Menu.Contract">
 			<HintPath>resources/exports/T3Menu.Contract.dll</HintPath>
 		</Reference>
+		<Reference Include="Volume.Contract">
+			<HintPath>../lib/Volume.Contract.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
 	</ItemGroup>
 
 	<ItemGroup>

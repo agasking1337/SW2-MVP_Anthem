@@ -48,7 +48,11 @@ public sealed class CoreMvpMenu(ISwiftlyCore core, MVPConfig config, MVPCookies 
                 var option = new ButtonMenuOption(entry.Text, 250, 250) { CloseAfterClick = !entry.KeepOpen };
                 option.Click += (_, args) =>
                 {
-                    if (IsActive && args.Player is { IsValid: true } current) entry.Action?.Invoke(current);
+                    if (IsActive && args.Player is { IsValid: true } current)
+                        Core.Scheduler.NextTick(() =>
+                        {
+                            if (IsActive && current.IsValid) entry.Action?.Invoke(current);
+                        });
                     return ValueTask.CompletedTask;
                 };
                 builder.AddOption(option);
